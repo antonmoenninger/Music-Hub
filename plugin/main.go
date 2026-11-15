@@ -69,6 +69,9 @@ func (p *plugin) OnCallback(req scheduler.SchedulerCallbackRequest) error {
 	if err := runScans(); err != nil {
 		pdk.Log(pdk.LogWarn, "musichub: scan queue: "+err.Error())
 	}
+	if err := runStars(); err != nil {
+		pdk.Log(pdk.LogWarn, "musichub: star queue: "+err.Error())
+	}
 	users, err := host.UsersGetUsers()
 	if err != nil {
 		return err
@@ -145,6 +148,37 @@ func runScans() error {
 		return err
 	}
 	pdk.Log(pdk.LogInfo, fmt.Sprintf("musichub: scanning %d new folder(s)", len(q.Targets)))
+	return nil
+}
+
+// runStars hearts songs Music Hub queued (e.g. Plex loved tracks), as the user they belong to.
+func runStars() error {
+	resp, err := hubPost("/api/plugin/star-queue", nil)
+	if err != nil {
+		return err
+	}
+	var q struct {
+		Stars map[string][]string `json:"stars"`
+	}
+	if err := json.Unmarshal(resp, &q); err != nil {
+		return err
+	}
+	for user, ids := range q.Stars {
+		for start := 0; start < len(ids); start += 100 {
+			end := start + 100
+			if end > len(ids) {
+				end = len(ids)
+			}
+			uri := "star?u=" + url.QueryEscape(user)
+			for _, id := range ids[start:end] {
+				uri += "&id=" + url.QueryEscape(id)
+			}
+			if _, err := host.SubsonicAPICall(uri); err != nil {
+				return fmt.Errorf("starring for %s: %w", user, err)
+			}
+		}
+		pdk.Log(pdk.LogInfo, fmt.Sprintf("musichub: hearted %d song(s) for %s", len(ids), user))
+	}
 	return nil
 }
 

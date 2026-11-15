@@ -1,8 +1,8 @@
 {
   "name": "Music Hub Sync",
   "author": "anton",
-  "version": "1.1.0",
-  "description": "Sends Navidrome play history to Music Hub, which combines it with Plex for statistics and the yearly Rewind.",
+  "version": "1.2.0",
+  "description": "Sends Navidrome play history to Music Hub (stats, Rewind), runs scans for its downloads and hearts songs it queues (Plex loved tracks).",
   "config": {
     "schema": {
       "type": "object",
@@ -76,7 +76,7 @@
       "maxSize": "64KB"
     },
     "subsonicapi": {
-      "reason": "Start a Navidrome scan of folders Music Hub downloaded into (needs an admin user assigned)"
+      "reason": "Start Navidrome scans of folders Music Hub downloaded into and heart songs it queues (needs an admin user assigned)"
     }
   }
 }

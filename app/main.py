@@ -411,6 +411,13 @@ async def scan_queue(authorization: str = Header("")):
     return {"targets": downloader.pop_scans()}
 
 
+@app.post("/api/plugin/star-queue")
+async def star_queue(authorization: str = Header("")):
+    """Songs the plugin should heart, per user (stars must be set as that user)."""
+    _plugin_auth(authorization)
+    return {"stars": downloader.pop_stars()}
+
+
 @app.post("/api/ingest/navidrome")
 async def ingest(body: IngestBody, authorization: str = Header("")):
     _plugin_auth(authorization)

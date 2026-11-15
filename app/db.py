@@ -80,6 +80,10 @@ CREATE TABLE IF NOT EXISTS shares (
 );
 
 CREATE TABLE IF NOT EXISTS scan_queue (target TEXT PRIMARY KEY, added REAL NOT NULL);
+
+-- songs to heart in Navidrome for a user (e.g. Plex loved tracks); the plugin stars them as that user
+CREATE TABLE IF NOT EXISTS star_queue (user TEXT NOT NULL, nd_id TEXT NOT NULL, added REAL NOT NULL,
+    PRIMARY KEY (user, nd_id));
 """
 
 _lock = threading.RLock()

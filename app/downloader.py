@@ -108,6 +108,17 @@ def pop_scans() -> list[str]:
     return rows
 
 
+def pop_stars() -> dict[str, list[str]]:
+    """Songs waiting to be hearted, grouped by Navidrome user (filled by the Plex sync)."""
+    with db.tx() as c:
+        rows = c.execute("SELECT user, nd_id FROM star_queue ORDER BY added").fetchall()
+        c.execute("DELETE FROM star_queue")
+    out: dict[str, list[str]] = {}
+    for r in rows:
+        out.setdefault(r["user"], []).append(r["nd_id"])
+    return out
+
+
 async def _step() -> bool:
     """Advance every unfinished download once. Returns True while work remains."""
     rows = [dict(r) for r in db.q("SELECT * FROM downloads WHERE status IN ('queued','downloading') ORDER BY id")]
