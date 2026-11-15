@@ -136,24 +136,35 @@ def rewind(user: str, year: int) -> dict:
     top_genres = [g for g in s["top_genres"] if g["name"]][:5]
     new_artists = [dict(r) for r in new_artists]
 
-    # one song from the library behind each part of the story
-    def pick(extra: str = "", args: tuple = ()) -> dict | None:
-        r = db.q1(f"SELECT p.title, {ART} artist, t.nd_id, t.duration, t.album_id, COUNT(*) plays {BASE}{w} "
-                  f"AND t.nd_id IS NOT NULL {extra} GROUP BY p.track_key ORDER BY plays DESC LIMIT 1", (*a, *args))
-        return dict(r) if r else None
+    # one song from the library behind each slide; no song is used twice
+    def picks(extra: str = "", args: tuple = (), n: int = 8) -> list[dict]:
+        return [dict(r) for r in db.q(
+            f"SELECT p.title, {ART} artist, t.nd_id, t.duration, t.album_id, COUNT(*) plays {BASE}{w} "
+            f"AND t.nd_id IS NOT NULL {extra} GROUP BY p.track_key ORDER BY plays DESC LIMIT ?", (*a, *args, n))]
 
-    playable = [t for t in s["top_tracks"] if t.get("nd_id")]
-    soundtrack = {
-        "top1": _st(playable[0]) if playable else pick(),
-        "top2": _st(playable[1]) if len(playable) > 1 else None,
-        "top3": _st(playable[2]) if len(playable) > 2 else None,
-        "top_artist": pick(f" AND lower({ART}) = lower(?)", (s["top_artists"][0]["name"],)) if s["top_artists"] else None,
-        "genre": pick(" AND t.genre = ?", (top_genres[0]["name"],)) if top_genres else None,
-        "peak_hour": pick(" AND CAST(strftime('%H', p.ts, 'unixepoch', 'localtime') AS INTEGER) = ?", (persona["peak_hour"],)),
-        "best_month": pick(" AND CAST(strftime('%m', p.ts, 'unixepoch', 'localtime') AS INTEGER) = ?", (best_month + 1,)),
-        "era": pick(" AND t.year >= ? AND t.year < ?", (age["era"], age["era"] + 10)) if age.get("era") else None,
-        "new_artist": pick(f" AND lower({ART}) = lower(?)", (new_artists[0]["name"],)) if new_artists else None,
-    }
+    tops = picks(n=40)
+    artists = s["top_artists"]
+    wants: list[tuple[str, list[dict]]] = [  # most telling slides choose first
+        ("top-song", tops[:1]),
+        ("top-artist", picks(f" AND lower({ART}) = lower(?)", (artists[0]["name"],)) if artists else []),
+        ("genre", picks(" AND t.genre = ?", (top_genres[0]["name"],)) if top_genres else []),
+        ("musical-age", picks(" AND t.year >= ? AND t.year < ?", (age["era"], age["era"] + 10)) if age.get("era") else []),
+        ("discoveries", picks(f" AND lower({ART}) = lower(?)", (new_artists[0]["name"],)) if new_artists else []),
+        ("persona", picks(" AND CAST(strftime('%H', p.ts, 'unixepoch', 'localtime') AS INTEGER) = ?", (persona["peak_hour"],))),
+        ("months", picks(" AND CAST(strftime('%m', p.ts, 'unixepoch', 'localtime') AS INTEGER) = ?", (best_month + 1,))),
+        ("top-songs", tops[1:5]),
+        ("top-artists", picks(f" AND lower({ART}) = lower(?)", (artists[1]["name"],)) if len(artists) > 1 else []),
+        ("intro", []), ("minutes", []), ("sources", []), ("summary", []),
+    ]
+    used: set[str] = set()
+    soundtrack: dict[str, dict] = {}
+    for slide, cands in wants:
+        for t in [*cands, *tops]:  # fall back to any other top song not heard yet
+            if t["nd_id"] not in used:
+                used.add(t["nd_id"])
+                soundtrack[slide] = {k: t[k] for k in ("title", "artist", "nd_id", "duration", "album_id")}
+                break
+
     return {
         "year": year, "empty": False,
         "minutes": s["minutes"], "plays": s["plays"], "songs": s["songs"], "artists": s["artists"],
@@ -163,13 +174,8 @@ def rewind(user: str, year: int) -> dict:
         "busiest_day": busiest, "first_play": dict(first) if first else None,
         "new_artists": new_artists, "by_source": s["by_source"],
         "top_track_first_ts": top_track_first, "musical_age": age,
-        "soundtrack": {k: v for k, v in soundtrack.items() if v and v.get("nd_id")},
+        "soundtrack": soundtrack,
     }
-
-
-def _st(t: dict) -> dict:
-    return {"title": t["name"], "artist": t["artist"], "nd_id": t["nd_id"], "duration": t.get("duration"),
-            "album_id": t.get("album_id")}
 
 
 # Listening age: people tend to love the music of their late teens most ("reminiscence bump"),

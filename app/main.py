@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import db, downloader, navidrome, plex, proxy, spotbye, stats
+from . import clips, db, downloader, navidrome, plex, proxy, spotbye, stats
 from .config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -199,9 +199,16 @@ async def get_years(user: str = Depends(current_user)):
     return stats.years(user)
 
 
+_prewarm_tasks: set[asyncio.Task] = set()
+
+
 @app.get("/api/rewind")
 async def get_rewind(year: int, user: str = Depends(current_user)):
     data = await asyncio.to_thread(stats.rewind, user, year)
+    if data.get("soundtrack"):
+        t = asyncio.create_task(clips.prewarm(list(data["soundtrack"].values())))  # clips ready before their slide
+        _prewarm_tasks.add(t)
+        t.add_done_callback(_prewarm_tasks.discard)
     for a in data.get("top_artists") or []:
         if not a.get("artist_id"):
             try:
@@ -264,6 +271,15 @@ async def public_cover(token: str, id: str, size: int = 300):
     if id not in _cover_ids(_share(token)):
         raise HTTPException(404)
     return await _cover(id, size)
+
+
+@app.get("/api/clip/{song_id}")
+async def clip(song_id: str, user: str = Depends(current_user)):
+    """~40 s MP3 of a library song from near its chorus, for the Rewind soundtrack."""
+    p = await clips.ensure(song_id)
+    if not p:
+        raise HTTPException(404, "song not playable")
+    return FileResponse(p, media_type="audio/mpeg", headers={"Cache-Control": "private, max-age=604800"})
 
 
 @app.get("/api/stream/{song_id}")

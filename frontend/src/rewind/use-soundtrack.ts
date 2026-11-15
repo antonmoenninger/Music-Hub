@@ -2,37 +2,69 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import type { SoundtrackSong } from "@/lib/api"
 
-const FADE_MS = 1400
+const FADE_MS = 1200
+// a few ms of silence: playing it inside a tap "unlocks" an <audio> element on iOS/Android
+const SILENCE = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA="
 
-/** Two <audio> elements that crossfade between library songs as the story moves on. */
+let players: HTMLAudioElement[] = []
+
+/** Call synchronously inside the click that starts the story (before any await). */
+export function unlockAudio() {
+  if (!players.length) {
+    players = [new Audio(), new Audio()]
+    players.forEach((a) => {
+      a.preload = "auto"
+      a.loop = true // a held (paused) slide keeps its music going
+      a.setAttribute("playsinline", "")
+    })
+  }
+  players.forEach((a) => {
+    a.src = SILENCE
+    a.play().then(() => a.pause()).catch(() => {})
+  })
+}
+
+/** iOS ignores element.volume (always 1): no crossfade there, a clean cut instead. */
+function volumeWorks() {
+  const a = new Audio()
+  a.volume = 0.5
+  return a.volume === 0.5
+}
+
+const clipUrl = (id: string) => `/api/clip/${encodeURIComponent(id)}`
+
+/** Two players crossfading between short clips; the idle one preloads the next song. */
 export function useSoundtrack(enabled: boolean) {
-  const players = useRef<HTMLAudioElement[]>([])
   const active = useRef(0)
   const currentId = useRef<string | null>(null)
   const fades = useRef<number[]>([])
+  const canFade = useRef(true)
   const [muted, setMuted] = useState(false)
   const [nowPlaying, setNowPlaying] = useState<SoundtrackSong | null>(null)
 
   useEffect(() => {
     if (!enabled) return
-    players.current = [new Audio(), new Audio()]
-    players.current.forEach((a) => {
-      a.preload = "auto"
-      a.volume = 0
-    })
+    if (!players.length) unlockAudio()
+    canFade.current = volumeWorks()
     return () => {
       fades.current.forEach(cancelAnimationFrame)
-      players.current.forEach((a) => {
+      players.forEach((a) => {
         a.pause()
         a.removeAttribute("src")
         a.load()
       })
+      currentId.current = null
     }
   }, [enabled])
 
-  useEffect(() => players.current.forEach((a) => (a.muted = muted)), [muted])
+  useEffect(() => players.forEach((a) => (a.muted = muted)), [muted])
 
   const ramp = (a: HTMLAudioElement, to: number, done?: () => void) => {
+    if (!canFade.current) {
+      a.volume = 1
+      done?.()
+      return
+    }
     const from = a.volume
     const start = performance.now()
     const step = (now: number) => {
@@ -44,30 +76,37 @@ export function useSoundtrack(enabled: boolean) {
     fades.current.push(requestAnimationFrame(step))
   }
 
-  const play = useCallback((song?: SoundtrackSong | null) => {
-    if (!enabled || !song || song.nd_id === currentId.current) return
-    currentId.current = song.nd_id
-    setNowPlaying(song)
-    const prev = players.current[active.current]
-    active.current = 1 - active.current
-    const next = players.current[active.current]
-    next.src = `/api/stream/${encodeURIComponent(song.nd_id)}`
-    next.volume = 0
-    // start near the chorus instead of the intro
-    const d = song.duration || 0
-    const offset = d > 90 ? Math.min(d * 0.3, 75) : 0
-    const start = () => {
-      if (offset) next.currentTime = offset
-      next.play().then(() => ramp(next, 0.9)).catch(() => {})
+  /** Switch to `song` (no-op if it is already playing) and preload `next`. */
+  const play = useCallback((song?: SoundtrackSong | null, next?: SoundtrackSong | null) => {
+    if (!enabled || !players.length) return
+    if (song && song.nd_id !== currentId.current) {
+      currentId.current = song.nd_id
+      setNowPlaying(song)
+      const prev = players[active.current]
+      active.current = 1 - active.current
+      const cur = players[active.current]
+      const url = clipUrl(song.nd_id)
+      if (!cur.src.endsWith(url)) cur.src = url
+      cur.volume = canFade.current ? 0 : 1
+      cur.currentTime = 0
+      cur.play().then(() => ramp(cur, 0.9)).catch(() => {})
+      if (canFade.current) ramp(prev, 0, () => prev.pause())
+      else prev.pause()
     }
-    if (next.readyState >= 1) start()
-    else next.addEventListener("loadedmetadata", start, { once: true })
-    ramp(prev, 0, () => prev.pause())
+    // the idle player fetches the next slide's song in the background
+    const idle = players[1 - active.current]
+    if (next && next.nd_id !== currentId.current && idle.paused) {
+      const url = clipUrl(next.nd_id)
+      if (!idle.src.endsWith(url)) {
+        idle.src = url
+        idle.load()
+      }
+    }
   }, [enabled])
 
-  const pause = useCallback(() => players.current.forEach((a) => a.pause()), [])
+  const pause = useCallback(() => players.forEach((a) => a.pause()), [])
   const resume = useCallback(() => {
-    const a = players.current[active.current]
+    const a = players[active.current]
     if (a?.src) a.play().catch(() => {})
   }, [])
 

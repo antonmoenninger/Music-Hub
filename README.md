@@ -35,11 +35,13 @@ How data flows:
 
 ## Deploy / update
 
-```bash
-rsync -a --delete --exclude .git --exclude plugin/.pdk --exclude frontend/node_modules --exclude static ./ anton@192.168.178.56:musichub-src/
-ssh anton@192.168.178.56 'cd ~/musichub-src && docker build -t musichub:X.Y.Z .'
-# then set MUSICHUB_VERSION=X.Y.Z in the Portainer stack env and update the stack
-```
+Same pattern as spotbye-web: GitHub Actions builds `ghcr.io/antonmoenninger/musichub` on every
+push to `main` (tags `latest` + the commit sha), Portainer pulls it with its `ghcr` registry.
+
+1. `git push` to `main` and wait for the "Docker image" workflow.
+2. Portainer → Stacks → `musichub` → Editor → **Update the stack** with **Re-pull image** on.
+
+`MUSICHUB_VERSION` in the stack env pins a tag (`latest` or a commit sha, e.g. to roll back).
 
 Plugin: `plugin/build.sh` → copy `plugin/musichub.ndp` to the Navidrome plugins folder, then
 `navidrome plugin edit musichub --all-users --config '{"hubUrl":"http://musichub:8095","secret":"…"}'`

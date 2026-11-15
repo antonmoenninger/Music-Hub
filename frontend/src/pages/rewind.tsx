@@ -11,6 +11,7 @@ import { api, post, type Me, type Rewind } from "@/lib/api"
 import { coverUrl } from "@/lib/format"
 import { shareLink } from "@/rewind/share"
 import { RewindStory } from "@/rewind/story"
+import { unlockAudio } from "@/rewind/use-soundtrack"
 import { THEMES } from "@/rewind/themes"
 
 export function RewindHero({ year, children, sub }: { year: number; children?: React.ReactNode; sub?: string }) {
@@ -49,6 +50,7 @@ export default function RewindPage({ me }: { me: Me }) {
   }
 
   const start = async () => {
+    unlockAudio() // must happen inside the tap, before any await (iOS/Android autoplay rules)
     setLoading(true)
     try {
       const d = await api<Rewind>(`/api/rewind?year=${year}`)

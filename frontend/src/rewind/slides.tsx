@@ -19,7 +19,6 @@ export interface SlideCtx {
 
 export interface SlideDef {
   id: string
-  song?: string // soundtrack key
   visual?: (c: SlideCtx) => ReactNode
   text: (c: SlideCtx) => ReactNode
   /** landscape: put the visual first (left) */
@@ -229,7 +228,7 @@ export function buildSlides(d: Rewind): SlideDef[] {
   const S: SlideDef[] = []
 
   S.push({
-    id: "intro", song: "top1",
+    id: "intro",
     visual: (c) => <CoverOrbit c={c} ids={[...new Set([...T, ...d.top_albums].map((t) => t.album_id).filter(Boolean) as string[])].slice(0, 6)} />,
     text: (c) => (<>
       <Kicker c={c}>{c.user}</Kicker>
@@ -239,7 +238,7 @@ export function buildSlides(d: Rewind): SlideDef[] {
   })
 
   S.push({
-    id: "minutes", song: "top2",
+    id: "minutes",
     text: (c) => (<>
       <Kicker c={c}>Deine Hörzeit</Kicker>
       <Rise c={c} delay={0.1}><Count c={c} to={d.minutes} className="block font-display text-[22cqmin] font-black leading-[0.85] tracking-[-0.06em] tabular-nums" /></Rise>
@@ -251,7 +250,7 @@ export function buildSlides(d: Rewind): SlideDef[] {
   })
 
   if (G.length) S.push({
-    id: "genre", song: "genre",
+    id: "genre",
     visual: (c) => <Bubbles c={c} items={G} />,
     text: (c) => (<>
       <Kicker c={c}>Dein Sound</Kicker>
@@ -261,7 +260,7 @@ export function buildSlides(d: Rewind): SlideDef[] {
   })
 
   if (A[0]) S.push({
-    id: "top-artist", song: "top_artist", visualFirst: true,
+    id: "top-artist", visualFirst: true,
     visual: (c) => <Pulse c={c}><Img src={c.cover(A[0].artist_id ? "ar-" + A[0].artist_id : "", 800)} round className="size-full shadow-2xl" /></Pulse>,
     text: (c) => (<>
       <Kicker c={c}>Dein Künstler Nr. 1</Kicker>
@@ -271,7 +270,7 @@ export function buildSlides(d: Rewind): SlideDef[] {
   })
 
   if (A.length > 1) S.push({
-    id: "top-artists", song: "top3",
+    id: "top-artists",
     text: (c) => (<>
       <Kicker c={c}>Deine Top-Künstler</Kicker>
       <H2 c={c}>Die üblichen Verdächtigen</H2>
@@ -280,7 +279,7 @@ export function buildSlides(d: Rewind): SlideDef[] {
   })
 
   if (T[0]) S.push({
-    id: "top-song", song: "top1", visualFirst: true,
+    id: "top-song", visualFirst: true,
     visual: (c) => <Vinyl c={c} src={c.cover(T[0].album_id, 800)} />,
     text: (c) => (<>
       <Kicker c={c}>Dein Song des Jahres</Kicker>
@@ -290,7 +289,7 @@ export function buildSlides(d: Rewind): SlideDef[] {
   })
 
   if (T.length > 1) S.push({
-    id: "top-songs", song: "top2",
+    id: "top-songs",
     text: (c) => (<>
       <Kicker c={c}>Deine Top-Songs</Kicker>
       <H2 c={c}>Auf Dauerschleife</H2>
@@ -299,7 +298,7 @@ export function buildSlides(d: Rewind): SlideDef[] {
   })
 
   S.push({
-    id: "persona", song: "peak_hour",
+    id: "persona",
     visual: (c) => <Clock c={c} />,
     text: (c) => (<>
       <Kicker c={c}>Dein Hörtyp</Kicker>
@@ -309,7 +308,7 @@ export function buildSlides(d: Rewind): SlideDef[] {
   })
 
   S.push({
-    id: "months", song: "best_month",
+    id: "months",
     visual: (c) => <ColumnChart c={c} values={d.months} labels={MONTHS_SHORT} highlight={d.best_month} />,
     text: (c) => (<>
       <Kicker c={c}>Dein Jahr in Monaten</Kicker>
@@ -319,7 +318,7 @@ export function buildSlides(d: Rewind): SlideDef[] {
   })
 
   if (age.age) S.push({
-    id: "musical-age", song: "era",
+    id: "musical-age",
     visual: (c) => <ColumnChart c={c} values={(age.decades || []).map((x) => x.plays)} labels={(age.decades || []).map((x) => `${String(x.decade).slice(2)}er`)}
       highlight={(age.decades || []).findIndex((x) => x.decade === age.era)} />,
     text: (c) => (<>
@@ -336,7 +335,7 @@ export function buildSlides(d: Rewind): SlideDef[] {
   })
 
   if (d.new_artists?.length) S.push({
-    id: "discoveries", song: "new_artist",
+    id: "discoveries",
     text: (c) => (<>
       <Kicker c={c}>Neu entdeckt</Kicker>
       <H2 c={c}>{d.new_artists.length > 1 ? "Diese Künstler hast du dieses Jahr kennengelernt" : "Neu in deinem Leben"}</H2>
@@ -345,7 +344,7 @@ export function buildSlides(d: Rewind): SlideDef[] {
   })
 
   if ((d.by_source.navidrome?.secs || 0) && (d.by_source.plex?.secs || 0)) S.push({
-    id: "sources", song: "top3",
+    id: "sources",
     visual: (c) => <SplitBar c={c} />,
     text: (c) => (<>
       <Kicker c={c}>Zwei Server, eine Sammlung</Kicker>
@@ -355,7 +354,7 @@ export function buildSlides(d: Rewind): SlideDef[] {
   })
 
   S.push({
-    id: "summary", song: "top1",
+    id: "summary",
     text: (c) => (<>
       <Kicker c={c}>Rewind {d.year} · {c.user}</Kicker>
       <Rise c={c} delay={0.1} className="rounded-[4cqmin] bg-black/20 p-[4.5cqmin] backdrop-blur-md">

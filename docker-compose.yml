@@ -1,8 +1,10 @@
-# Music Hub stack (deployed as the Portainer stack "musichub" on hpelitedesk).
+# Music Hub stack (Portainer stack "musichub" on hpelitedesk).
+# The image is built by GitHub Actions (.github/workflows/docker.yml) and pulled from ghcr.io.
+# Update: push to main, then in Portainer "Update the stack" with "Re-pull image".
 # Secrets come from stack environment variables, not from this file.
 services:
   musichub:
-    image: musichub:${MUSICHUB_VERSION:-latest}
+    image: ghcr.io/antonmoenninger/musichub:${MUSICHUB_VERSION:-latest}
     container_name: musichub
     restart: unless-stopped
     user: "1000:1000"

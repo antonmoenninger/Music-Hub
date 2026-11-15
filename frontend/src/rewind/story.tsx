@@ -68,15 +68,20 @@ export function RewindStory({ data, user, cover, music, getShareUrl, onClose }: 
     setI(Math.max(0, n))
   }, [slides.length, close])
 
-  // music follows the story
+  // music follows the story: each slide has its own song, none repeats; a slide without one keeps the current song
   useEffect(() => {
-    const key = slide.song
-    sound.play((key && data.soundtrack?.[key]) || data.soundtrack?.top1)
+    const st = data.soundtrack || {}
+    const nextSong = slides.slice(i + 1).map((sl) => st[sl.id]).find(Boolean)
+    sound.play(st[slide.id], nextSong)
   }, [i]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // full screen + keyboard
+  // full screen once, when the story opens
   useEffect(() => {
     root.current?.requestFullscreen?.().catch(() => {})
+  }, [])
+
+  // keyboard
+  useEffect(() => {
     const onFs = () => setFull(!!document.fullscreenElement)
     const onKey = (e: KeyboardEvent) => {
       if (shareOpen) return
