@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+data/
+plugin/*.wasm
+plugin/*.ndp
+plugin/.pdk/

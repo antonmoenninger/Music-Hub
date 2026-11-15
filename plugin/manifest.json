@@ -1,0 +1,82 @@
+{
+  "name": "Music Hub Sync",
+  "author": "anton",
+  "version": "1.1.0",
+  "description": "Sends Navidrome play history to Music Hub, which combines it with Plex for statistics and the yearly Rewind.",
+  "config": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "hubUrl": {
+          "type": "string",
+          "title": "Music Hub URL",
+          "description": "Address of Music Hub as seen from the Navidrome container",
+          "default": "http://musichub:8095"
+        },
+        "secret": {
+          "type": "string",
+          "title": "Ingest secret",
+          "description": "Must match INGEST_SECRET of Music Hub"
+        },
+        "intervalMinutes": {
+          "type": "integer",
+          "title": "Sync every (minutes)",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 59
+        }
+      },
+      "required": [
+        "hubUrl",
+        "secret"
+      ]
+    },
+    "uiSchema": {
+      "type": "VerticalLayout",
+      "elements": [
+        {
+          "type": "Control",
+          "scope": "#/properties/hubUrl"
+        },
+        {
+          "type": "Control",
+          "scope": "#/properties/secret",
+          "options": {
+            "format": "password"
+          }
+        },
+        {
+          "type": "Control",
+          "scope": "#/properties/intervalMinutes"
+        }
+      ]
+    }
+  },
+  "permissions": {
+    "http": {
+      "reason": "Send play history to Music Hub on the local network",
+      "requiredHosts": [
+        "musichub",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "10.0.0.0/8"
+      ]
+    },
+    "users": {
+      "reason": "Sync every user's play history; an admin user is needed to start scans"
+    },
+    "scrobbleRetriever": {
+      "reason": "Read each user's play history"
+    },
+    "scheduler": {
+      "reason": "Run the sync every few minutes"
+    },
+    "kvstore": {
+      "reason": "Remember the last synced play per user",
+      "maxSize": "64KB"
+    },
+    "subsonicapi": {
+      "reason": "Start a Navidrome scan of folders Music Hub downloaded into (needs an admin user assigned)"
+    }
+  }
+}

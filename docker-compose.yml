@@ -1,0 +1,35 @@
+# Music Hub stack (deployed as the Portainer stack "musichub" on hpelitedesk).
+# Secrets come from stack environment variables, not from this file.
+services:
+  musichub:
+    image: musichub:${MUSICHUB_VERSION:-latest}
+    container_name: musichub
+    restart: unless-stopped
+    user: "1000:1000"
+    ports:
+      - "8095:8095"
+    environment:
+      TZ: Europe/Berlin
+      ND_URL: http://navidrome:4533
+      ND_ADMIN_USER: musichub          # regular (non-admin) Navidrome account
+      ND_ADMIN_PASS: ${ND_PASS}
+      ND_LIBRARY_ID: "1"
+      ND_DOWNLOAD_PREFIX: Musik-downloads
+      SPOTBYE_URL: https://spotbye.craftkingdom.de
+      SPOTBYE_KEY: ${SPOTBYE_KEY}
+      PLEX_URL: http://192.168.178.56:32400
+      PLEX_TOKEN: ${PLEX_TOKEN}
+      PLEX_SECTION: "2"
+      PLEX_USER_MAP: "1=Anton"         # Plex account id = Navidrome user
+      INGEST_SECRET: ${INGEST_SECRET}
+      SESSION_SECRET: ${SESSION_SECRET}
+    volumes:
+      - /DATA/AppData/musichub:/data
+      - /media/Plex/Musik-downloads:/downloads
+    networks: [navidrome]
+    mem_limit: 512m
+
+networks:
+  navidrome:
+    name: navidrome_and_musicbrainz_default
+    external: true
