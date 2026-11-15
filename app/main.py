@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
+import secrets
 import hashlib
 import hmac
 import logging
@@ -11,7 +13,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -184,6 +186,85 @@ async def get_rewind(year: int, user: str = Depends(current_user)):
     return data
 
 
+def _cover_ids(data: dict) -> set[str]:
+    ids: set[str] = set()
+    for key in ("top_tracks", "top_albums"):
+        ids |= {x["album_id"] for x in data.get(key) or [] if x.get("album_id")}
+    ids |= {"ar-" + x["artist_id"] for x in data.get("top_artists") or [] if x.get("artist_id")}
+    ids |= {x["album_id"] for x in (data.get("soundtrack") or {}).values() if x.get("album_id")}
+    oldest = (data.get("musical_age") or {}).get("oldest") or {}
+    if oldest.get("album_id"):
+        ids.add(oldest["album_id"])
+    return ids
+
+
+class ShareBody(BaseModel):
+    year: int
+
+
+@app.post("/api/rewind/share")
+async def share_rewind(body: ShareBody, user: str = Depends(current_user)):
+    """Freeze this Rewind into a public, read-only snapshot (no music, no login needed)."""
+    data = await get_rewind(body.year, user)
+    if data.get("empty"):
+        raise HTTPException(404, "no plays that year")
+    data.pop("soundtrack", None)  # the library is not streamed to the public
+    old = db.q1("SELECT token FROM shares WHERE user=? AND year=?", (user, body.year))
+    token = old["token"] if old else secrets.token_urlsafe(9)
+    db.ex("INSERT OR REPLACE INTO shares(token,user,year,data,created) VALUES(?,?,?,?,?)",
+          (token, user, body.year, json.dumps({**data, "user": user}), time.time()))
+    return {"token": token, "path": f"/r/{token}"}
+
+
+@app.delete("/api/rewind/share/{token}")
+async def unshare_rewind(token: str, user: str = Depends(current_user)):
+    db.ex("DELETE FROM shares WHERE token=? AND user=?", (token, user))
+    return {"ok": True}
+
+
+def _share(token: str) -> dict:
+    r = db.q1("SELECT data FROM shares WHERE token=?", (token,))
+    if not r:
+        raise HTTPException(404, "This Rewind is no longer shared")
+    return json.loads(r["data"])
+
+
+@app.get("/api/public/rewind/{token}")
+async def public_rewind(token: str):
+    return _share(token)
+
+
+@app.get("/api/public/cover/{token}")
+async def public_cover(token: str, id: str, size: int = 300):
+    if id not in _cover_ids(_share(token)):
+        raise HTTPException(404)
+    return await _cover(id, size)
+
+
+@app.get("/api/stream/{song_id}")
+async def stream_song(song_id: str, request: Request, user: str = Depends(current_user)):
+    """Raw stream of a library song for the Rewind soundtrack (Range requests pass through)."""
+    params = navidrome._auth(settings.nd_user, settings.nd_pass)
+    params.pop("f")
+    params.update({"id": song_id, "format": "raw"})
+    headers = {"Range": request.headers["range"]} if "range" in request.headers else {}
+    req = proxy._http.build_request("GET", f"{settings.nd_url}/rest/stream", params=params, headers=headers)
+    r = await proxy._http.send(req, stream=True)
+    if r.status_code not in (200, 206) or not r.headers.get("content-type", "").startswith("audio"):
+        await r.aclose()
+        raise HTTPException(404, "song not playable")
+    keep = {k: v for k, v in r.headers.items()
+            if k.lower() in ("content-type", "content-length", "content-range", "accept-ranges", "last-modified", "etag")}
+
+    async def body():
+        try:
+            async for chunk in r.aiter_raw():
+                yield chunk
+        finally:
+            await r.aclose()
+    return StreamingResponse(body(), status_code=r.status_code, headers={**keep, "Cache-Control": "private, max-age=3600"})
+
+
 @app.get("/api/sync-status")
 async def sync_status(user: str = Depends(current_user)):
     r = db.q1("SELECT SUM(resolved=0) todo, SUM(resolved=1) matched, SUM(resolved=2) unmatched FROM tracks")
@@ -193,11 +274,15 @@ async def sync_status(user: str = Depends(current_user)):
 
 @app.get("/api/cover")
 async def cover(id: str, size: int = 300, user: str = Depends(current_user)):
+    return await _cover(id, size)
+
+
+async def _cover(id: str, size: int) -> Response:
     r = await navidrome.raw("getCoverArt", id=id, size=min(size, 1200))
     if r.status_code != 200 or not r.headers.get("content-type", "").startswith("image/"):
         raise HTTPException(404)
     return Response(r.content, media_type=r.headers["content-type"],
-                    headers={"Cache-Control": "private, max-age=86400"})
+                    headers={"Cache-Control": "public, max-age=86400"})
 
 
 # ------------------------------------------------------------------ plugin ingest
@@ -250,16 +335,20 @@ async def health():
 
 # ------------------------------------------------------------------ web app
 @app.middleware("http")
-async def revalidate_assets(request: Request, call_next):
+async def asset_caching(request: Request, call_next):
     resp = await call_next(request)
     if request.url.path.startswith("/assets/"):
-        resp.headers["Cache-Control"] = "no-cache"  # always revalidate (ETag), so updates show up at once
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"  # Vite file names carry a hash
     return resp
 
 
-app.mount("/assets", StaticFiles(directory=STATIC), name="assets")
+(STATIC / "assets").mkdir(parents=True, exist_ok=True)
+app.mount("/assets", StaticFiles(directory=STATIC / "assets"), name="assets")
 
 
 @app.get("/{path:path}", include_in_schema=False)
 async def spa(path: str):
+    f = (STATIC / path).resolve()
+    if path and f.is_file() and STATIC.resolve() in f.parents:  # favicon etc. from Vite's public/
+        return FileResponse(f)
     return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})

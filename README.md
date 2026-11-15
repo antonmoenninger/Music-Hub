@@ -9,13 +9,19 @@ Self-hosted companion for Navidrome + Plex:
   one downloads it first (~30–40 s), then streams it.
 - **Statistics**: Navidrome and Plex plays combined (top artists/songs/albums/genres,
   time of day, weekday, daily minutes).
-- **Rewind**: a tap-through story of your year.
+- **Rewind**: a full-screen story of your year (portrait + landscape layouts), with songs from
+  the library crossfading behind the slides, a musical age, share images (9:16 / 16:9) and
+  public read-only share links (`/r/<token>`, no music, only that Rewind's covers).
+
+Web UI: React + Vite + Tailwind + shadcn/ui in `frontend/` (built into `static/` by the
+Dockerfile; `npm run dev` proxies `/api` to a local Hub on :8095). Rewind colours live in
+`frontend/src/rewind/themes.ts`.
 
 ## Pieces
 
 | Part | Where |
 |---|---|
-| Hub (FastAPI, `app/`, web UI in `static/`) | Portainer stack `musichub` on hpelitedesk, port 8095 |
+| Hub (FastAPI, `app/`, web UI in `frontend/`) | Portainer stack `musichub` on hpelitedesk, port 8095 |
 | Navidrome plugin `Music Hub Sync` (`plugin/`) | `/DATA/AppData/navidrome/plugins/musichub.ndp` |
 | Downloads | `/media/Plex/Musik-downloads` → Navidrome `/music/Musik-downloads` (read-only) |
 | Data (SQLite) | `/DATA/AppData/musichub/musichub.db` |
@@ -30,7 +36,7 @@ How data flows:
 ## Deploy / update
 
 ```bash
-rsync -a --delete --exclude .git --exclude plugin/.pdk ./ anton@192.168.178.56:musichub-src/
+rsync -a --delete --exclude .git --exclude plugin/.pdk --exclude frontend/node_modules --exclude static ./ anton@192.168.178.56:musichub-src/
 ssh anton@192.168.178.56 'cd ~/musichub-src && docker build -t musichub:X.Y.Z .'
 # then set MUSICHUB_VERSION=X.Y.Z in the Portainer stack env and update the stack
 ```

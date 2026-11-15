@@ -65,7 +65,8 @@ def summary(user: str, start: int, end: int, source: str | None = None) -> dict:
         "top_artists": _top(user, start, end, source, f"lower({ART})", f"{ART} name, MAX(t.artist_id) artist_id",
                             extra=NOT_VA),
         "top_tracks": _top(user, start, end, source, "p.track_key",
-                           f"p.title name, {ART} artist, MAX(t.album_id) album_id, MAX(t.nd_id) nd_id"),
+                           f"p.title name, {ART} artist, MAX(t.album_id) album_id, MAX(t.nd_id) nd_id, "
+                           "p.track_key track_key, MAX(t.duration) duration"),
         "top_albums": _top(user, start, end, source, "lower(p.album)",
                            "p.album name, p.artist artist, MAX(t.album_id) album_id"),
         "top_genres": _top(user, start, end, source, "COALESCE(t.genre,'')", "t.genre name", 8),
@@ -127,19 +128,82 @@ def rewind(user: str, year: int) -> dict:
     top_track = s["top_tracks"][0] if s["top_tracks"] else None
     top_track_first = None
     if top_track:
-        r = db.q1(f"SELECT MIN(p.ts) ts {BASE}{w} AND p.track_key = "
-                  "(SELECT track_key FROM plays WHERE user=? AND title=? AND artist=? LIMIT 1)",
-                  (*a, user, top_track["name"], top_track["artist"]))
+        r = db.q1(f"SELECT MIN(p.ts) ts {BASE}{w} AND p.track_key = ?", (*a, top_track["track_key"]))
         top_track_first = r["ts"] if r else None
-    total_users_minutes = s["minutes"]
+    persona = _persona(s["hours"])
+    best_month = max(range(12), key=lambda m: months[m])
+    age = _musical_age(user, start, end, year)
+    top_genres = [g for g in s["top_genres"] if g["name"]][:5]
+    new_artists = [dict(r) for r in new_artists]
+
+    # one song from the library behind each part of the story
+    def pick(extra: str = "", args: tuple = ()) -> dict | None:
+        r = db.q1(f"SELECT p.title, {ART} artist, t.nd_id, t.duration, t.album_id, COUNT(*) plays {BASE}{w} "
+                  f"AND t.nd_id IS NOT NULL {extra} GROUP BY p.track_key ORDER BY plays DESC LIMIT 1", (*a, *args))
+        return dict(r) if r else None
+
+    playable = [t for t in s["top_tracks"] if t.get("nd_id")]
+    soundtrack = {
+        "top1": _st(playable[0]) if playable else pick(),
+        "top2": _st(playable[1]) if len(playable) > 1 else None,
+        "top3": _st(playable[2]) if len(playable) > 2 else None,
+        "top_artist": pick(f" AND lower({ART}) = lower(?)", (s["top_artists"][0]["name"],)) if s["top_artists"] else None,
+        "genre": pick(" AND t.genre = ?", (top_genres[0]["name"],)) if top_genres else None,
+        "peak_hour": pick(" AND CAST(strftime('%H', p.ts, 'unixepoch', 'localtime') AS INTEGER) = ?", (persona["peak_hour"],)),
+        "best_month": pick(" AND CAST(strftime('%m', p.ts, 'unixepoch', 'localtime') AS INTEGER) = ?", (best_month + 1,)),
+        "era": pick(" AND t.year >= ? AND t.year < ?", (age["era"], age["era"] + 10)) if age.get("era") else None,
+        "new_artist": pick(f" AND lower({ART}) = lower(?)", (new_artists[0]["name"],)) if new_artists else None,
+    }
     return {
         "year": year, "empty": False,
-        "minutes": total_users_minutes, "plays": s["plays"], "songs": s["songs"], "artists": s["artists"],
+        "minutes": s["minutes"], "plays": s["plays"], "songs": s["songs"], "artists": s["artists"],
         "days_listened": len(days), "streak": best,
         "top_artists": s["top_artists"][:5], "top_tracks": s["top_tracks"][:5], "top_albums": s["top_albums"][:5],
-        "top_genres": [g for g in s["top_genres"] if g["name"]][:5],
-        "persona": _persona(s["hours"]), "hours": s["hours"], "months": months,
+        "top_genres": top_genres, "persona": persona, "hours": s["hours"], "months": months, "best_month": best_month,
         "busiest_day": busiest, "first_play": dict(first) if first else None,
-        "new_artists": [dict(r) for r in new_artists], "by_source": s["by_source"],
-        "top_track_first_ts": top_track_first,
+        "new_artists": new_artists, "by_source": s["by_source"],
+        "top_track_first_ts": top_track_first, "musical_age": age,
+        "soundtrack": {k: v for k, v in soundtrack.items() if v and v.get("nd_id")},
     }
+
+
+def _st(t: dict) -> dict:
+    return {"title": t["name"], "artist": t["artist"], "nd_id": t["nd_id"], "duration": t.get("duration"),
+            "album_id": t.get("album_id")}
+
+
+# Listening age: people tend to love the music of their late teens most ("reminiscence bump"),
+# so the median release year of what you play, seen from age ~17, says how "old" your taste is.
+BUMP_AGE = 17
+
+
+def _musical_age(user: str, start: int, end: int, year: int) -> dict:
+    w, a = _where(user, start, end, None)
+    rows = db.q(f"SELECT t.year y, COUNT(*) n {BASE}{w} AND t.year > 1900 AND t.year <= ? GROUP BY t.year ORDER BY t.year",
+                (*a, year))
+    total = sum(r["n"] for r in rows)
+    if total < 20:
+        return {}
+    acc, median = 0, rows[-1]["y"]
+    for r in rows:
+        acc += r["n"]
+        if acc >= total / 2:
+            median = r["y"]
+            break
+    decades: dict[int, int] = {}
+    for r in rows:
+        d = r["y"] // 10 * 10
+        decades[d] = decades.get(d, 0) + r["n"]
+    era = max(decades, key=decades.get)
+    oldest = db.q1(f"SELECT p.title, {ART} artist, t.year, t.album_id {BASE}{w} AND t.year > 1900 "
+                   "ORDER BY t.year ASC, p.ts ASC LIMIT 1", a)
+    age = max(10, min(99, year - median + BUMP_AGE))
+    return {
+        "age": age, "median_year": median, "era": era, "coverage": round(total / max(1, _count(w, a)) * 100),
+        "decades": [{"decade": d, "plays": n} for d, n in sorted(decades.items())],
+        "oldest": dict(oldest) if oldest else None,
+    }
+
+
+def _count(w: str, a: list) -> int:
+    return db.q1(f"SELECT COUNT(*) n {BASE}{w}", a)["n"]

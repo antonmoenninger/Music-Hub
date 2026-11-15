@@ -64,6 +64,11 @@ CREATE TABLE IF NOT EXISTS spcache (        -- spotify items handed out by the s
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
 
 -- folders waiting for a Navidrome scan; the Navidrome plugin picks them up (scans need admin)
+-- public, read-only Rewind snapshots ("share link")
+CREATE TABLE IF NOT EXISTS shares (
+    token TEXT PRIMARY KEY, user TEXT NOT NULL, year INTEGER NOT NULL, data TEXT NOT NULL, created REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS scan_queue (target TEXT PRIMARY KEY, added REAL NOT NULL);
 """
 

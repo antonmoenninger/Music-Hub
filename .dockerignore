@@ -1,0 +1,5 @@
+.git
+static
+frontend/node_modules
+plugin/.pdk
+**/__pycache__

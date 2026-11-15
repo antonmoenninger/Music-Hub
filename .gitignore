@@ -5,3 +5,5 @@ data/
 plugin/*.wasm
 plugin/*.ndp
 plugin/.pdk/
+static/
+frontend/node_modules/
