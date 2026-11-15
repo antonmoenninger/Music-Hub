@@ -4,7 +4,7 @@
 # Secrets come from stack environment variables, not from this file.
 services:
   musichub:
-    image: ghcr.io/antonmoenninger/musichub:${MUSICHUB_VERSION:-latest}
+    image: ghcr.io/antonmoenninger/music-hub:${MUSICHUB_VERSION:-latest}
     container_name: musichub
     restart: unless-stopped
     user: "1000:1000"

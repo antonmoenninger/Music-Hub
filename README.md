@@ -35,7 +35,7 @@ How data flows:
 
 ## Deploy / update
 
-Same pattern as spotbye-web: GitHub Actions builds `ghcr.io/antonmoenninger/musichub` on every
+Same pattern as spotbye-web: GitHub Actions builds `ghcr.io/antonmoenninger/music-hub` on every
 push to `main` (tags `latest` + the commit sha), Portainer pulls it with its `ghcr` registry.
 
 1. `git push` to `main` and wait for the "Docker image" workflow.
