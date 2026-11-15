@@ -5,6 +5,7 @@ import { AppShell } from "@/components/app-shell"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { api, setUnauthorizedHandler, type Me } from "@/lib/api"
+import AccountsPage from "@/pages/accounts"
 import LoginPage from "@/pages/login"
 import RewindPage from "@/pages/rewind"
 import SearchPage from "@/pages/search"
@@ -40,6 +41,7 @@ export default function App() {
                   <Route path="/search" element={<SearchPage me={me} />} />
                   <Route path="/stats" element={<StatsPage />} />
                   <Route path="/rewind" element={<RewindPage me={me} />} />
+                  {me.admin && <Route path="/accounts" element={<AccountsPage />} />}
                   <Route path="*" element={<Navigate to="/search" replace />} />
                 </Routes>
               </AppShell>

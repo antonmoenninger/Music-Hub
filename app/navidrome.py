@@ -84,3 +84,41 @@ async def artist_id(name: str) -> str | None:
             break
     _artist_cache[name.lower()] = (time.time(), aid)
     return aid
+
+
+# ------------------------------------------------------------ native API (admin features)
+async def native_login(user: str, password: str) -> dict | None:
+    """Navidrome's own login. Returns {token, isAdmin, username, ...} or None."""
+    try:
+        r = await _http.post(f"{settings.nd_url}/auth/login", json={"username": user, "password": password})
+    except httpx.HTTPError:
+        return None
+    return r.json() if r.status_code == 200 else None
+
+
+def _bearer(token: str) -> dict:
+    return {"X-ND-Authorization": f"Bearer {token}"}
+
+
+async def list_users(token: str) -> list[dict]:
+    r = await _http.get(f"{settings.nd_url}/api/user", params={"_start": 0, "_end": 500}, headers=_bearer(token))
+    r.raise_for_status()
+    users = r.json()
+    db.ex("DELETE FROM nd_users")
+    for u in users:
+        db.ex("INSERT OR REPLACE INTO nd_users(user_name, name, is_admin, last_login) VALUES(?,?,?,?)",
+              (u["userName"], u.get("name"), int(bool(u.get("isAdmin"))), u.get("lastLoginAt")))
+    return users
+
+
+async def create_user(token: str, username: str, name: str, password: str) -> dict:
+    r = await _http.post(f"{settings.nd_url}/api/user", headers=_bearer(token),
+                         json={"userName": username, "name": name, "email": "", "password": password, "isAdmin": False})
+    if r.status_code >= 400:
+        try:
+            body = r.json()
+            msg = body.get("error") or "; ".join(f"{k}: {v}" for k, v in (body.get("errors") or {}).items())
+        except Exception:
+            msg = r.text[:200]
+        raise NavidromeError(msg or f"HTTP {r.status_code}")
+    return r.json()

@@ -63,6 +63,16 @@ CREATE TABLE IF NOT EXISTS spcache (        -- spotify items handed out by the s
 
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
 
+-- Plex account -> Navidrome user. Plays of unlinked accounts are kept as user "plex:<account>".
+CREATE TABLE IF NOT EXISTS plex_links (
+    account TEXT PRIMARY KEY, plex_name TEXT NOT NULL DEFAULT '', nd_user TEXT
+);
+
+-- Navidrome users as last seen by an admin (refreshed at admin login / account creation)
+CREATE TABLE IF NOT EXISTS nd_users (
+    user_name TEXT PRIMARY KEY, name TEXT, is_admin INTEGER NOT NULL DEFAULT 0, last_login TEXT
+);
+
 -- folders waiting for a Navidrome scan; the Navidrome plugin picks them up (scans need admin)
 -- public, read-only Rewind snapshots ("share link")
 CREATE TABLE IF NOT EXISTS shares (
@@ -85,8 +95,24 @@ def conn() -> sqlite3.Connection:
         c.execute("PRAGMA journal_mode=WAL")
         c.execute("PRAGMA synchronous=NORMAL")
         c.executescript(SCHEMA)
+        _migrate(c)
         _conn = c
     return _conn
+
+
+def _migrate(c: sqlite3.Connection) -> None:
+    cols = {r[1] for r in c.execute("PRAGMA table_info(plays)")}
+    if "account" not in cols:
+        # plays now remember which Plex account they came from, so links can be changed later
+        c.execute("ALTER TABLE plays ADD COLUMN account TEXT NOT NULL DEFAULT ''")
+        for acc, user in settings.plex_user_map.items():
+            c.execute("UPDATE plays SET account=? WHERE source='plex' AND user=?", (acc, user))
+        c.execute("CREATE INDEX IF NOT EXISTS plays_account ON plays (source, account)")
+    if not c.execute("SELECT 1 FROM plex_links LIMIT 1").fetchone():
+        for acc, user in settings.plex_user_map.items():
+            c.execute("INSERT OR IGNORE INTO plex_links(account, nd_user) VALUES(?,?)", (acc, user))
+        # walk the whole Plex history once more to pick up every account
+        c.execute("INSERT OR REPLACE INTO kv(k,v) VALUES('plex_last_viewed','0')")
 
 
 @contextmanager
@@ -171,15 +197,31 @@ def track_key(artist: str, title: str) -> str:
 
 
 def add_play(source: str, user: str, ts: int, artist: str, album: str, title: str,
-             duration: int | None, ext_id: str) -> bool:
+             duration: int | None, ext_id: str, account: str = "") -> bool:
     key = track_key(artist, title)
     with _lock:
         c = conn()
         cur = c.execute(
-            "INSERT OR IGNORE INTO plays(source,user,ts,artist,album,title,duration,ext_id,track_key) "
-            "VALUES(?,?,?,?,?,?,?,?,?)",
-            (source, user, int(ts), artist or "", album or "", title or "", duration, ext_id or "", key))
+            "INSERT OR IGNORE INTO plays(source,user,ts,artist,album,title,duration,ext_id,track_key,account) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (source, user, int(ts), artist or "", album or "", title or "", duration, ext_id or "", key, account))
         if cur.rowcount:
             c.execute("INSERT OR IGNORE INTO tracks(track_key,artist,title,album,duration) VALUES(?,?,?,?,?)",
                       (key, artist, title, album, duration))
         return bool(cur.rowcount)
+
+
+# ------------------------------------------------------------ plex <-> navidrome links
+def plex_user(account: str) -> str:
+    r = q1("SELECT nd_user FROM plex_links WHERE account=?", (account,))
+    return r["nd_user"] if r and r["nd_user"] else f"plex:{account}"
+
+
+def link_plex(account: str, nd_user: str | None) -> int:
+    """Point a Plex account at a Navidrome user (or unlink it) and move its history along."""
+    with tx() as c:
+        c.execute("INSERT INTO plex_links(account, nd_user) VALUES(?,?) "
+                  "ON CONFLICT(account) DO UPDATE SET nd_user=excluded.nd_user", (account, nd_user or None))
+        cur = c.execute("UPDATE OR IGNORE plays SET user=? WHERE source='plex' AND account=?",
+                        (nd_user or f"plex:{account}", account))
+        return cur.rowcount

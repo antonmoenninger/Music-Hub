@@ -1,4 +1,4 @@
-import { BarChart3, LogOut, Search, Sparkles } from "lucide-react"
+import { BarChart3, LogOut, Search, Sparkles, Users } from "lucide-react"
 import type { ReactNode } from "react"
 import { NavLink } from "react-router-dom"
 
@@ -38,7 +38,7 @@ export function AppShell({ me, onLogout, children }: { me: Me; onLogout: () => v
             <span className="hidden sm:inline">{me.name}</span>
           </div>
           <nav className="ml-1 flex gap-1 sm:ml-4">
-            {NAV.map(({ to, label, icon: Icon }) => (
+            {[...NAV, ...(me.admin ? [{ to: "/accounts", label: "Konten", icon: Users }] : [])].map(({ to, label, icon: Icon }) => (
               <NavLink
                 key={to}
                 to={to}

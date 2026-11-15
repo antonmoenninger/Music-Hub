@@ -46,12 +46,12 @@ def _sign(data: str) -> str:
     return hmac.new(settings.session_secret.encode(), data.encode(), hashlib.sha256).hexdigest()
 
 
-def make_session(user: str) -> str:
-    payload = f"{user}|{int(time.time()) + SESSION_DAYS * 86400}"
+def make_session(user: str, admin: bool = False) -> str:
+    payload = f"{user}|{int(admin)}|{int(time.time()) + SESSION_DAYS * 86400}"
     return base64.urlsafe_b64encode(payload.encode()).decode() + "." + _sign(payload)
 
 
-def read_session(token: str | None) -> str | None:
+def read_session_full(token: str | None) -> tuple[str, bool] | None:
     if not token or "." not in token:
         return None
     b64, sig = token.rsplit(".", 1)
@@ -61,8 +61,15 @@ def read_session(token: str | None) -> str | None:
         return None
     if not hmac.compare_digest(sig, _sign(payload)):
         return None
-    user, exp = payload.rsplit("|", 1)
-    return user if int(exp) > time.time() else None
+    parts = payload.split("|")
+    user, exp = "|".join(parts[:-2] if len(parts) > 2 else parts[:-1]), parts[-1]
+    admin = len(parts) > 2 and parts[-2] == "1"
+    return (user, admin) if int(exp) > time.time() else None
+
+
+def read_session(token: str | None) -> str | None:
+    s = read_session_full(token)
+    return s[0] if s else None
 
 
 def current_user(request: Request) -> str:
@@ -72,6 +79,15 @@ def current_user(request: Request) -> str:
     return user
 
 
+def admin_user(request: Request) -> str:
+    s = read_session_full(request.cookies.get(COOKIE))
+    if not s:
+        raise HTTPException(401, "sign in first")
+    if not s[1]:
+        raise HTTPException(403, "Nur für Navidrome-Admins")
+    return s[0]
+
+
 class LoginBody(BaseModel):
     username: str
     password: str
@@ -79,12 +95,20 @@ class LoginBody(BaseModel):
 
 @app.post("/api/login")
 async def login(body: LoginBody, response: Response, request: Request):
-    if not await navidrome.check_login(body.username, body.password):
-        raise HTTPException(401, "Wrong Navidrome username or password")
+    info = await navidrome.native_login(body.username, body.password)
+    if not info:
+        raise HTTPException(401, "Falscher Navidrome-Benutzername oder falsches Passwort")
+    user = info.get("username") or body.username  # Navidrome's own spelling of the name
+    admin = bool(info.get("isAdmin"))
+    if admin:
+        try:
+            await navidrome.list_users(info["token"])  # remember the user list for the accounts page
+        except Exception as e:
+            log.warning("could not list Navidrome users: %s", e)
     secure = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
-    response.set_cookie(COOKIE, make_session(body.username), max_age=SESSION_DAYS * 86400,
+    response.set_cookie(COOKIE, make_session(user, admin), max_age=SESSION_DAYS * 86400,
                         httponly=True, samesite="lax", secure=secure)
-    return {"user": body.username}
+    return {"user": user, "admin": admin}
 
 
 @app.post("/api/logout")
@@ -94,14 +118,15 @@ async def logout(response: Response):
 
 
 @app.get("/api/me")
-async def me(user: str = Depends(current_user)):
+async def me(request: Request, user: str = Depends(current_user)):
     spotify = False
     if settings.spotbye_enabled:
         try:
             spotify = (await spotbye.status())["spotify_configured"]
         except Exception:
             pass
-    return {"user": user, "name": settings.public_name, "spotify": spotify, "plex": settings.plex_enabled}
+    admin = (read_session_full(request.cookies.get(COOKIE)) or ("", False))[1]
+    return {"user": user, "name": settings.public_name, "spotify": spotify, "plex": settings.plex_enabled, "admin": admin}
 
 
 # ------------------------------------------------------------------ search + downloads
@@ -263,6 +288,68 @@ async def stream_song(song_id: str, request: Request, user: str = Depends(curren
         finally:
             await r.aclose()
     return StreamingResponse(body(), status_code=r.status_code, headers={**keep, "Cache-Control": "private, max-age=3600"})
+
+
+# ------------------------------------------------------------------ accounts (admins)
+@app.get("/api/admin/accounts")
+async def admin_accounts(user: str = Depends(admin_user)):
+    if settings.plex_enabled:
+        try:
+            await plex.accounts()
+        except Exception as e:
+            log.warning("plex accounts: %s", e)
+    stats_by = {r["account"]: dict(r) for r in db.q(
+        "SELECT account, COUNT(*) plays, MAX(ts) last_ts FROM plays WHERE source='plex' GROUP BY account")}
+    plex_rows = []
+    for r in db.q("SELECT account, plex_name, nd_user FROM plex_links ORDER BY account"):
+        st = stats_by.get(r["account"], {})
+        if not r["plex_name"] and not st:
+            continue  # Plex's nameless system account
+        plex_rows.append({"account": r["account"], "name": r["plex_name"] or f"Konto {r['account']}",
+                          "nd_user": r["nd_user"], "plays": st.get("plays", 0), "last_ts": st.get("last_ts")})
+    plex_rows.sort(key=lambda x: -x["plays"])
+    nd_plays = {r["user"]: r["n"] for r in db.q("SELECT user, COUNT(*) n FROM plays WHERE source='navidrome' GROUP BY user")}
+    users = [{"userName": r["user_name"], "name": r["name"], "isAdmin": bool(r["is_admin"]), "lastLogin": r["last_login"],
+              "plays": nd_plays.get(r["user_name"], 0)}
+             for r in db.q("SELECT * FROM nd_users ORDER BY lower(user_name)") if r["user_name"] != settings.nd_user]
+    return {"plex": plex_rows, "nd_users": users}
+
+
+class LinkBody(BaseModel):
+    nd_user: str | None = None
+
+
+@app.put("/api/admin/accounts/{account}")
+async def admin_link(account: str, body: LinkBody, user: str = Depends(admin_user)):
+    if body.nd_user and not db.q1("SELECT 1 FROM nd_users WHERE user_name=?", (body.nd_user,)):
+        raise HTTPException(404, "Unbekannter Navidrome-Benutzer")
+    moved = db.link_plex(account, body.nd_user)
+    return {"ok": True, "moved_plays": moved}
+
+
+class NewUserBody(BaseModel):
+    username: str = Field(min_length=2, max_length=40, pattern=r"^[\w.\-äöüÄÖÜß ]+$")
+    name: str = ""
+    password: str = Field(min_length=6)
+    admin_password: str
+    link_account: str | None = None
+
+
+@app.post("/api/admin/nd-users")
+async def admin_create_user(body: NewUserBody, user: str = Depends(admin_user)):
+    """Create a Navidrome account (needs the admin's password, used for this request only)."""
+    info = await navidrome.native_login(user, body.admin_password)
+    if not info or not info.get("isAdmin"):
+        raise HTTPException(403, "Admin-Passwort ist falsch")
+    username, name = body.username.strip(), body.name.strip() or body.username.strip()
+    try:
+        await navidrome.create_user(info["token"], username, name, body.password)  # answers with just {"id"}
+    except navidrome.NavidromeError as e:
+        raise HTTPException(400, f"Navidrome: {e}")
+    await navidrome.list_users(info["token"])
+    if body.link_account:
+        db.link_plex(body.link_account, username)
+    return {"userName": username, "name": name, "linked": body.link_account}
 
 
 @app.get("/api/sync-status")

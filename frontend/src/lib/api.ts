@@ -25,7 +25,7 @@ export const post = <T,>(path: string, body?: unknown) =>
   api<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) })
 
 // ---------------------------------------------------------------- types
-export interface Me { user: string; name: string; spotify: boolean; plex: boolean }
+export interface Me { user: string; name: string; spotify: boolean; plex: boolean; admin: boolean }
 
 export interface NdSong { id: string; title: string; artist: string; album: string; albumId?: string; coverArt?: string; duration?: number; year?: number }
 export interface NdAlbum { id: string; name: string; artist: string; year?: number; coverArt?: string }
@@ -75,3 +75,7 @@ export interface Rewind {
   musical_age: MusicalAge
   soundtrack?: Record<string, SoundtrackSong>
 }
+
+export interface PlexAccount { account: string; name: string; nd_user: string | null; plays: number; last_ts: number | null }
+export interface NdUser { userName: string; name: string; isAdmin: boolean; lastLogin: string | null; plays: number }
+export interface Accounts { plex: PlexAccount[]; nd_users: NdUser[] }

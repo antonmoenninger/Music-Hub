@@ -45,13 +45,12 @@ async def sync_once() -> int:
             newest = max(newest, ts)
             if it.get("type") != "track":
                 continue
-            user = settings.plex_user_map.get(str(it.get("accountID")))
-            if not user:
-                continue  # not a mapped account
+            account = str(it.get("accountID") or "")
+            user = db.plex_user(account)  # unlinked accounts are kept as "plex:<id>" until linked
             artist = it.get("originalTitle") or it.get("grandparentTitle") or ""
             dur = it.get("duration")
             if db.add_play("plex", user, ts, artist, it.get("parentTitle") or "", it.get("title") or "",
-                           int(dur) // 1000 if dur else None, str(it.get("ratingKey") or "")):
+                           int(dur) // 1000 if dur else None, str(it.get("ratingKey") or ""), account):
                 added += 1
         if reached_known or len(items) < PAGE:
             break
@@ -62,10 +61,26 @@ async def sync_once() -> int:
     return added
 
 
+async def accounts() -> list[dict]:
+    """Plex accounts of this server (id + name)."""
+    r = await _http.get(f"{settings.plex_url}/accounts", params={"X-Plex-Token": settings.plex_token},
+                        headers={"Accept": "application/json"})
+    r.raise_for_status()
+    out = [{"account": str(a["id"]), "name": (a.get("name") or "").strip()} for a in r.json()["MediaContainer"].get("Account", [])]
+    for a in out:
+        db.ex("INSERT INTO plex_links(account, plex_name) VALUES(?,?) ON CONFLICT(account) DO UPDATE SET plex_name=excluded.plex_name",
+              (a["account"], a["name"]))
+    return out
+
+
 async def plex_loop() -> None:
     if not settings.plex_enabled:
         log.info("Plex not configured, skipping")
         return
+    try:
+        await accounts()
+    except Exception as e:
+        log.warning("plex accounts: %s", e)
     while True:
         try:
             n = await sync_once()
