@@ -128,7 +128,7 @@ def _song_from_spotify(t: dict) -> dict:
     al = SPOT_AL + m.group(1) if m else ""
     year = (t.get("release_date") or "")[:4]
     song = {
-        "id": sid, "parent": al, "isDir": False, "title": t.get("name") or "",
+        "id": sid, "parent": al, "isDir": False, "title": f"⬇ {t.get('name') or ''}",  # not in the library yet
         "album": f"{t.get('album_name') or ''} · {'Deezer' if t['spotify_id'].startswith(deezer.PREFIX) else 'Spotify'}", "artist": t.get("artists") or "",
         "coverArt": sid, "duration": int((t.get("duration_ms") or 0) / 1000),
         "suffix": "flac", "contentType": "audio/flac", "type": "music", "isVideo": False,
