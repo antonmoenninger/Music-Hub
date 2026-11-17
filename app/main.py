@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import clips, db, downloader, navidrome, plex, proxy, spotbye, stats
+from . import clips, db, deezer, downloader, navidrome, plex, proxy, spotbye, stats
 from .config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -134,17 +134,25 @@ async def me(request: Request, user: str = Depends(current_user)):
 async def search(q: str, user: str = Depends(current_user)):
     q = q.strip()
     if len(q) < 2:
-        return {"library": {}, "spotify": {}, "spotify_error": None}
+        return {"library": {}, "spotify": {}, "spotify_error": None, "source": "spotify"}
 
     async def sp():
-        if not settings.spotbye_enabled:
-            return {}, "SpotBye is not configured"
-        try:
-            return await spotbye.search(q, "track,album", 12), None
+        err = None
+        if settings.spotbye_enabled:
+            try:
+                res = await spotbye.search(q, "track,album", 12)
+                if res.get("tracks") or res.get("albums"):
+                    return res, None, "spotify"
+            except Exception as e:
+                err = str(e)
+        else:
+            err = "SpotBye is not configured"
+        try:  # Spotify unavailable (or empty) -> Deezer's public search, downloaded via SpotBye's Direct mode
+            return await deezer.search(q, 12), None, "deezer"
         except Exception as e:
-            return {}, str(e)
+            return {}, f"Spotify: {err} / Deezer: {e}", "deezer"
 
-    lib, (spot, err) = await asyncio.gather(navidrome.search(q, songs=25, albums=10, artists=6), sp())
+    lib, (spot, err, source) = await asyncio.gather(navidrome.search(q, songs=25, albums=10, artists=6), sp())
     have = {db.track_key(s.get("artist", ""), s.get("title", "")) for s in lib.get("song") or []}
     have_albums = {(db.norm(a.get("artist", "")), db.norm(a.get("name", ""))) for a in lib.get("album") or []}
     for t in spot.get("tracks") or []:
@@ -153,12 +161,12 @@ async def search(q: str, user: str = Depends(current_user)):
     for a in spot.get("albums") or []:
         a["in_library"] = (db.norm(db.primary_artist(a.get("artists", ""))), db.norm(a.get("name", ""))) in have_albums
         a["download"] = downloader.existing(a["id"])
-    return {"library": lib, "spotify": spot, "spotify_error": err}
+    return {"library": lib, "spotify": spot, "spotify_error": err, "source": source}
 
 
 class DownloadBody(BaseModel):
     kind: str = Field(pattern="^(track|album)$")
-    spotify_id: str = Field(pattern=r"^[A-Za-z0-9]{10,40}$")
+    spotify_id: str = Field(pattern=r"^([A-Za-z0-9]{10,40}|deezer:[0-9]{1,20})$")
     title: str = ""
     artist: str = ""
     image: str = ""

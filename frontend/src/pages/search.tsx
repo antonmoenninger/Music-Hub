@@ -105,7 +105,7 @@ export default function SearchPage({ me }: { me: Me }) {
 
   return (
     <>
-      <PageHeader title="Suche" sub="Deine Bibliothek und Spotify zusammen. Fehlt etwas, lade es mit einem Klick herunter." />
+      <PageHeader title="Suche" sub="Deine Bibliothek und Spotify (oder Deezer) zusammen. Fehlt etwas, lade es mit einem Klick herunter." />
       <div className="relative">
         <SearchIcon className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
         <Input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Künstler, Song oder Album…"
@@ -115,8 +115,8 @@ export default function SearchPage({ me }: { me: Me }) {
 
       {!me.spotify && (
         <Alert className="mt-4">
-          <AlertTitle>Spotify-Suche ist noch nicht eingerichtet</AlertTitle>
-          <AlertDescription>In SpotBye fehlen Client ID und Secret (Einstellungen → Spotify). Die Suche in deiner Bibliothek funktioniert trotzdem.</AlertDescription>
+          <AlertTitle>Spotify-Suche ist nicht verfügbar</AlertTitle>
+          <AlertDescription>Gesucht wird stattdessen auf Deezer – Downloads funktionieren genauso. Für Spotify fehlen in SpotBye Client ID und Secret (Einstellungen → Spotify).</AlertDescription>
         </Alert>
       )}
 
@@ -150,7 +150,7 @@ export default function SearchPage({ me }: { me: Me }) {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2">Von Spotify <Badge variant="outline">SpotBye</Badge></CardTitle></CardHeader>
+            <CardHeader><CardTitle className="flex items-center gap-2">Von {res.source === "deezer" ? "Deezer" : "Spotify"} <Badge variant="outline">SpotBye</Badge></CardTitle></CardHeader>
             <CardContent className="grid gap-1">
               {res.spotify_error ? <p className="py-6 text-center text-muted-foreground">{res.spotify_error}</p> :
                 tracks.length ? tracks.map((t) => (

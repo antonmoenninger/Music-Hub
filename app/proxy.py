@@ -19,7 +19,7 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
-from . import db, downloader, navidrome, spotbye
+from . import db, deezer, downloader, navidrome, spotbye
 from .config import settings
 
 log = logging.getLogger("musichub.proxy")
@@ -129,7 +129,7 @@ def _song_from_spotify(t: dict) -> dict:
     year = (t.get("release_date") or "")[:4]
     song = {
         "id": sid, "parent": al, "isDir": False, "title": t.get("name") or "",
-        "album": f"{t.get('album_name') or ''} · Spotify", "artist": t.get("artists") or "",
+        "album": f"{t.get('album_name') or ''} · {'Deezer' if t['spotify_id'].startswith(deezer.PREFIX) else 'Spotify'}", "artist": t.get("artists") or "",
         "coverArt": sid, "duration": int((t.get("duration_ms") or 0) / 1000),
         "suffix": "flac", "contentType": "audio/flac", "type": "music", "isVideo": False,
         "path": f"Spotify/{t.get('artists')}/{t.get('name')}.flac",
@@ -152,11 +152,17 @@ def _song_from_spotify(t: dict) -> dict:
 
 
 async def _spotify_songs(query: str, have: set[str]) -> list[dict]:
+    res: dict = {}
     try:
         res = await asyncio.wait_for(spotbye.search(query, "track", 10), timeout=6)
     except Exception as e:
-        log.info("spotify search skipped: %s", e)
-        return []
+        log.info("spotify search failed, trying Deezer: %s", e)
+    if not res.get("tracks"):
+        try:
+            res = await asyncio.wait_for(deezer.search(query, 10), timeout=6)
+        except Exception as e:
+            log.info("deezer search skipped: %s", e)
+            return []
     out = []
     for t in res.get("tracks") or []:
         if db.track_key(t.get("artists", ""), t.get("name", "")) in have:

@@ -1,4 +1,4 @@
-"""Queue Spotify downloads on SpotBye, pull the finished files home and import them."""
+"""Queue Spotify (or Deezer) downloads on SpotBye, pull the finished files home and import them."""
 from __future__ import annotations
 
 import asyncio
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import mutagen
 
-from . import db, plex, spotbye
+from . import db, deezer, plex, spotbye
 from .config import settings
 
 log = logging.getLogger("musichub.downloader")
@@ -25,6 +25,8 @@ def _safe(name: str, fallback: str) -> str:
 
 
 def spotify_url(kind: str, spotify_id: str) -> str:
+    if spotify_id.startswith(deezer.PREFIX):
+        return deezer.url(kind, spotify_id)
     return f"https://open.spotify.com/{kind}/{spotify_id}"
 
 

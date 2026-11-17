@@ -45,6 +45,7 @@ export interface SearchResult {
   library: { song?: NdSong[]; album?: NdAlbum[] }
   spotify: { tracks?: SpTrack[]; albums?: SpAlbum[] }
   spotify_error: string | null
+  source?: "spotify" | "deezer"
 }
 
 export interface Ranked { name: string; artist?: string; plays: number; secs: number; album_id?: string; artist_id?: string; nd_id?: string }
