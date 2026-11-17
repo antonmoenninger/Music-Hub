@@ -41,6 +41,9 @@ class Settings:
     plex_section: str = field(default_factory=lambda: _env("PLEX_SECTION", "2"))
     plex_user_map: dict = field(default_factory=lambda: _user_map(_env("PLEX_USER_MAP")))
     plex_poll_seconds: int = field(default_factory=lambda: int(_env("PLEX_POLL_SECONDS", "120")))
+    # Where Plex sees DOWNLOAD_DIR; new downloads trigger a Plex scan of just that folder
+    plex_download_path: str = field(
+        default_factory=lambda: _env("PLEX_DOWNLOAD_PATH", "/media/Plex/Musik-downloads").rstrip("/"))
 
     ingest_secret: str = field(default_factory=lambda: _env("INGEST_SECRET"))
     session_secret: str = field(default_factory=lambda: _env("SESSION_SECRET") or secrets.token_hex(32))

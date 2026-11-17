@@ -61,6 +61,20 @@ async def sync_once() -> int:
     return added
 
 
+async def scan_folder(rel_folder: str) -> None:
+    """Ask Plex to scan one downloaded folder (partial scan), so new music shows up right away."""
+    if not settings.plex_enabled or not settings.plex_download_path:
+        return
+    path = f"{settings.plex_download_path}/{rel_folder.strip('/')}"
+    try:
+        r = await _http.get(f"{settings.plex_url}/library/sections/{settings.plex_section}/refresh",
+                            params={"path": path, "X-Plex-Token": settings.plex_token})
+        r.raise_for_status()
+        log.info("Plex scan queued for %s", path)
+    except httpx.HTTPError as e:
+        log.warning("Plex scan for %s failed: %s", path, e)
+
+
 async def accounts() -> list[dict]:
     """Plex accounts of this server (id + name)."""
     r = await _http.get(f"{settings.plex_url}/accounts", params={"X-Plex-Token": settings.plex_token},

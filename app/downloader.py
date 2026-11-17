@@ -11,7 +11,7 @@ from pathlib import Path
 
 import mutagen
 
-from . import db, spotbye
+from . import db, plex, spotbye
 from .config import settings
 
 log = logging.getLogger("musichub.downloader")
@@ -92,6 +92,7 @@ async def _import(row: dict, job: dict) -> list[str]:
     shutil.rmtree(incoming, ignore_errors=True)
     for folder in sorted(folders):
         queue_scan(f"{settings.nd_download_prefix}/{folder}")
+        await plex.scan_folder(folder)
     return final
 
 
